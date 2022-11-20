@@ -1,3 +1,4 @@
+import TikTokApi
 from TikTokApi.browser_utilities.browser import browser
 from urllib.parse import quote, urlencode
 from .exceptions import *
@@ -27,11 +28,13 @@ def extract_tag_contents(html):
         if sigi_json:
             return sigi_json.group(1)
         else:
-            raise TikTokCaptchaError()
+            raise CaptchaException(0, None,
+                "TikTok blocks this request displaying a Captcha \nTip: Consider using a proxy or a custom_verify_fp as method parameters"
+            )
 
 
-def extract_video_id_from_url(url):
-    url = requests.head(url=url, allow_redirects=True).url
+def extract_video_id_from_url(url, headers={}):
+    url = requests.head(url=url, allow_redirects=True, headers=headers).url
     if "@" in url and "/video/" in url:
         return url.split("/video/")[1].split("?")[0]
     else:

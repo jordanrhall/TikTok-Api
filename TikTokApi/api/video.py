@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 from urllib.parse import urlencode
-
 from ..helpers import extract_video_id_from_url
-
-import logging
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
+from datetime import datetime
+import requests
 
 if TYPE_CHECKING:
     from ..tiktok import TikTokApi
     from .user import User
     from .sound import Sound
     from .hashtag import Hashtag
+    from .comment import Comment
 
 
 class Video:
@@ -28,6 +28,10 @@ class Video:
 
     id: Optional[str]
     """TikTok's ID of the Video"""
+    create_time: Optional[datetime]
+    """The creation time of the Video"""
+    stats: Optional[dict]
+    """TikTok's stats of the Video"""
     author: Optional[User]
     """The User who created the Video"""
     sound: Optional[Sound]
@@ -51,7 +55,9 @@ class Video:
             self.as_dict = data
             self.__extract_from_data()
         elif url is not None:
-            self.id = extract_video_id_from_url(url)
+            self.id = extract_video_id_from_url(
+                url, headers={"user-agent": self.parent._user_agent}
+            )
 
         if self.id is None:
             raise TypeError("You must provide id or url parameter.")
@@ -86,7 +92,6 @@ class Video:
         path = "api/item/detail/?{}&{}".format(
             self.parent._add_url_params(), urlencode(query)
         )
-
         return self.parent.get_data(path, **kwargs)
 
     def bytes(self, **kwargs) -> bytes:
@@ -116,6 +121,8 @@ class Video:
 
         if "author" in keys:
             self.id = data["id"]
+            self.create_time = datetime.fromtimestamp(data["createTime"])
+            self.stats = data["stats"]
             self.author = self.parent.user(data=data["author"])
             self.sound = self.parent.sound(data=data["music"])
 
@@ -129,6 +136,52 @@ class Video:
                 f"Failed to create Video with data: {data}\nwhich has keys {data.keys()}"
             )
 
+    def comments(self, count=20, offset=0, **kwargs) -> Iterator[Comment]:
+        """
+        Returns Comments from the video
+
+        - Parameters:
+            - count (int): The amount of videos you want returned.
+            - offset (int): The offset you want to check comments of
+        """
+
+        processed = Video.parent._process_kwargs(kwargs)
+        kwargs["custom_device_id"] = processed.device_id
+        cursor = offset
+
+        spawn = requests.head(
+            "https://www.tiktok.com",
+            proxies=Video.parent._format_proxy(processed.proxy),
+            **Video.parent._requests_extra_kwargs,
+        )
+        ttwid = spawn.cookies["ttwid"]
+
+        while cursor - offset <= count:
+            query = {
+                "aweme_id": self.id,
+                "cursor": cursor,
+                "app_language": Video.parent._language,
+                "count": 30,
+            }
+            path = "api/comment/list/?{}&{}".format(
+                Video.parent._add_url_params(), urlencode(query)
+            )
+
+            api_response = Video.parent.get_data(
+                path, subdomain="www", ttwid=ttwid, **kwargs
+            )
+
+            for comment_data in api_response.get("comments", []):
+                yield self.parent.comment(data=comment_data)
+
+            if api_response.get("has_more", 0) == 0:
+                Video.parent.logger.info(
+                    "TikTok is not sending comments beyond this point."
+                )
+                return
+
+            cursor = int(api_response.get("cursor", cursor))
+
     def __repr__(self):
         return self.__str__()
 
@@ -137,9 +190,14 @@ class Video:
 
     def __getattr__(self, name):
         # Handle author, sound, hashtags, as_dict
-        if name in ["author", "sound", "hashtags", "as_dict"]:
+        if name in ["author", "sound", "hashtags", "stats", "create_time", "as_dict"]:
             self.as_dict = self.info()
             self.__extract_from_data()
+            return self.__getattribute__(name)
+
+        if name in ["comments"]:
+            # Requires a different request to produce the comments
+            self.__extract_comments()
             return self.__getattribute__(name)
 
         raise AttributeError(f"{name} doesn't exist on TikTokApi.api.Video")

@@ -5,11 +5,48 @@ This is an unofficial api wrapper for TikTok.com in python. With this api you ar
 
  [![DOI](https://zenodo.org/badge/188710490.svg)](https://zenodo.org/badge/latestdoi/188710490) [![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white&style=flat-square)](https://www.linkedin.com/in/davidteather/) [![Sponsor Me](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub)](https://github.com/sponsors/davidteather)  [![GitHub release (latest by date)](https://img.shields.io/github/v/release/davidteather/TikTok-Api)](https://github.com/davidteather/TikTok-Api/releases) [![Build Status](https://img.shields.io/github/workflow/status/davidteather/tiktok-api/TikTokApi%20CI/master)](https://github.com/davidteather/TikTok-Api/actions/workflows/package-test.yml) [![GitHub](https://img.shields.io/github/license/davidteather/TikTok-Api)](https://github.com/davidteather/TikTok-Api/blob/master/LICENSE) [![Downloads](https://pepy.tech/badge/tiktokapi)](https://pypi.org/project/TikTokApi/) ![](https://visitor-badge.laobi.icu/badge?page_id=davidteather.TikTok-Api) [![Support Server](https://img.shields.io/discord/783108952111579166.svg?color=7289da&logo=discord&style=flat-square)](https://discord.gg/yyPhbfma6f)
 
+This api is designed to **retrieve data** TikTok. It **can not be used post or upload** content to TikTok on the behalf of a user. It has **no support any user-authenticated routes**, if you can't access it while being logged out on their website you can't access it here.
+
 ## Sponsors
 These sponsors have paid to be placed here and beyond that I do not have any affiliation with them, the TikTokAPI package will always be free and open-source. If you wish to be a sponsor of this project check out my [GitHub sponsors page](https://github.com/sponsors/davidteather).
 
-[![TikAPI](https://raw.githubusercontent.com/davidteather/TikTok-Api/master/imgs/logo128.png)](https://tikapi.io/?ref=davidteather)   |  **[TikAPI](https://tikapi.io/?ref=davidteather)** is a paid TikTok API service providing an full out-of-the-box solution for developers, trusted by 100+ companies. [Learn more](https://tikapi.io/?ref=davidteather)
-:-------------------------:|:-------------------------:
+<div align="center">
+    <a href="https://tikapi.io/?ref=davidteather" target="_blank">
+        <img src="https://raw.githubusercontent.com/davidteather/TikTok-Api/master/imgs/tikapi.png" width="100" alt="TikApi">
+        <div>
+            <b>TikAPI</b> is a paid TikTok API service providing a full out-of-the-box solution, making life easier for developers — trusted by 500+ companies.
+        </div>
+    </a>
+    <br>
+    <a href="https://trendpop.social/?ref=github-davidteather-tiktokapi" target="_blank">
+        <img src="https://raw.githubusercontent.com/davidteather/TikTok-Api/master/imgs/trendpop.png" width="100" alt="Trendpop">
+        <div>
+            Trendpop builds software to help creators and businesses go viral on social video platforms.
+        </div>
+        <div>
+            <sub>
+                Excited about building in this space?
+                <a href="https://trendpop.social/careers?ref=github-davidteather-tiktokapi">
+                    <sub>We're hiring engineers across all roles</sub>
+                </a>
+                <a href="https://trendpop.social/careers?ref=github-davidteather-tiktokapi" target="_blank">
+                <sub>- shoot us a message at </sub>
+                </a>
+                <a href="mailto:founders@trendpop.social" target="_blank">
+                <sub><code>founders@trendpop.social</code></sub>
+                </a>
+            </sub>
+        </div>
+	</a>
+    <br>
+    <a href="https://influencerhunters.com/docs.html?utm_source=github&utm_medium=githubpage&utm_campaign=david_thea_github&utm_id=david_t" target="_blank">
+        <img src="https://raw.githubusercontent.com/andrearama/TikTok-Api/master/imgs/IH_LOGO.png" width="100" alt="IH_logo">
+        <b></b>
+        <div>
+            TikTok data through APIs, providing 10+ Million posts / day to the largest Marketing and Social listening platforms.
+        </div>
+	</a>
+</div>
 
 ## Table of Contents
 - [Documentation](#documentation)
@@ -29,6 +66,8 @@ You can find the full documentation [here](https://davidteather.github.io/TikTok
 
 To get started using this api follow the instructions below.
 
+**Note:** If you want to learn how to web scrape websites check my [free and open-source course for learning everything web scraping](https://github.com/davidteather/everything-web-scraping)
+
 ### How to Support The Project
 * Star the repo 😎
 * Consider [sponsoring](https://github.com/sponsors/davidteather) me on GitHub
@@ -43,7 +82,9 @@ If you run into an issue please check the closed issues on the github, although 
 pip install TikTokApi
 python -m playwright install
 ```
-If you would prefer a video walk through of setting up this package I created a currently semi-outdated [YouTube video](https://www.youtube.com/watch?v=-uCt1x8kINQ) just for that.
+If you would prefer a video walk through of setting up this package [YouTube video](https://www.youtube.com/watch?v=-uCt1x8kINQ) just for that.
+
+If you want a quick video to listen for [TikTok Live](https://www.youtube.com/watch?v=307ijmA3_lc) events in python.
 
 #### Docker Installation
 
@@ -67,19 +108,19 @@ Please don't open an issue if you're experiencing one of these just comment if t
 
 Here's a quick bit of code to get the most recent trending videos on TikTok. There's more examples in the [examples](https://github.com/davidteather/TikTok-Api/tree/master/examples) directory.
 
+**Note:** If you want to learn how to web scrape websites check my [free and open-source course for web scraping](https://github.com/davidteather/web-scraping-with-reverse-engineering)
+
 ```py
 from TikTokApi import TikTokApi
 
-# In your web browser you will need to go to TikTok, check the cookies 
-# and under www.tiktok.com s_v_web_id should exist, and use that value
-# as input to custom_verify_fp
-# Or watch https://www.youtube.com/watch?v=-uCt1x8kINQ for a visual
-api = TikTokApi(custom_verify_fp="")
-
-for trending_video in api.trending.videos(count=50):
-    # Prints the author's username of the trending video.
-    print(trending_video.author.username)
+# Watch https://www.youtube.com/watch?v=-uCt1x8kINQ for a brief setup tutorial
+with TikTokApi() as api:
+    for trending_video in api.trending.videos(count=50):
+        # Prints the author's username of the trending video.
+        print(trending_video.author.username)
 ```
+
+**Note**: Jupyter (ipynb) only works on linux, see [microsoft/playwright-python #178](https://github.com/microsoft/playwright-python/issues/178)
 
 To run the example scripts from the repository root, make sure you use the `-m` option on python.
 ```sh
@@ -125,10 +166,10 @@ Here's a few more examples that help illustrate the differences in the flow of t
 api = TikTokApi.get_instance()
 trending_videos = api.by_trending()
 
-#V5
-api = TikTokApi() # .get_instance no longer exists
-for trending_video in api.trending.videos():
-    # do something
+#V5.1
+with TikTokApi() as api: # .get_instance no longer exists
+    for trending_video in api.trending.videos():
+        # do something
 ```
 
 Where in V4 you had to extract information yourself, the package now handles that for you. So it's much easier to do chained related function calls.

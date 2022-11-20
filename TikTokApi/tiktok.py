@@ -1,58 +1,100 @@
+import asyncio
 import json
 import logging
 import os
 import random
 import string
+import threading
 import time
-from typing import ClassVar, Optional
-from urllib import request
-from urllib.parse import quote, urlencode
+from dataclasses import dataclass
+from typing import Optional
+from urllib.parse import urlencode
 
 import requests
-from .api.sound import Sound
-from .api.user import User
-from .api.search import Search
+
+from .api.comment import Comment
 from .api.hashtag import Hashtag
-from .api.video import Video
+from .api.search import Search
+from .api.sound import Sound
 from .api.trending import Trending
-
-from playwright.sync_api import sync_playwright
-
-from .exceptions import *
-from .utilities import LOGGER_NAME, update_messager
+from .api.user import User
+from .api.video import Video
 from .browser_utilities.browser import browser
-from dataclasses import dataclass
+from .exceptions import *
+from .utilities import LOGGER_NAME
 
 os.environ["no_proxy"] = "127.0.0.1,localhost"
 
 BASE_URL = "https://m.tiktok.com/"
 DESKTOP_BASE_URL = "https://www.tiktok.com/"
 
+_thread_lock = threading.Lock()
+
+ERROR_CODES = {
+    "0": "OK",
+    "450": "CLIENT_PAGE_ERROR",
+    "10000": "VERIFY_CODE",
+    "10101": "SERVER_ERROR_NOT_500",
+    "10102": "USER_NOT_LOGIN",
+    "10111": "NET_ERROR",
+    "10113": "SHARK_SLIDE",
+    "10114": "SHARK_BLOCK",
+    "10119": "LIVE_NEED_LOGIN",
+    "10202": "USER_NOT_EXIST",
+    "10203": "MUSIC_NOT_EXIST",
+    "10204": "VIDEO_NOT_EXIST",
+    "10205": "HASHTAG_NOT_EXIST",
+    "10208": "EFFECT_NOT_EXIST",
+    "10209": "HASHTAG_BLACK_LIST",
+    "10210": "LIVE_NOT_EXIST",
+    "10211": "HASHTAG_SENSITIVITY_WORD",
+    "10212": "HASHTAG_UNSHELVE",
+    "10213": "VIDEO_LOW_AGE_M",
+    "10214": "VIDEO_LOW_AGE_T",
+    "10215": "VIDEO_ABNORMAL",
+    "10216": "VIDEO_PRIVATE_BY_USER",
+    "10217": "VIDEO_FIRST_REVIEW_UNSHELVE",
+    "10218": "MUSIC_UNSHELVE",
+    "10219": "MUSIC_NO_COPYRIGHT",
+    "10220": "VIDEO_UNSHELVE_BY_MUSIC",
+    "10221": "USER_BAN",
+    "10222": "USER_PRIVATE",
+    "10223": "USER_FTC",
+    "10224": "GAME_NOT_EXIST",
+    "10225": "USER_UNIQUE_SENSITIVITY",
+    "10227": "VIDEO_NEED_RECHECK",
+    "10228": "VIDEO_RISK",
+    "10229": "VIDEO_R_MASK",
+    "10230": "VIDEO_RISK_MASK",
+    "10231": "VIDEO_GEOFENCE_BLOCK",
+    "10404": "FYP_VIDEO_LIST_LIMIT",
+    "undefined": "MEDIA_ERROR",
+}
+
 
 class TikTokApi:
-    _instance = None
-    logger: ClassVar[logging.Logger] = logging.getLogger(LOGGER_NAME)
-
+    _is_context_manager = False
     user = User
     search = Search
     sound = Sound
     hashtag = Hashtag
     video = Video
     trending = Trending
+    comment = Comment
+    logger = logging.getLogger(LOGGER_NAME)
 
-    @staticmethod
-    def __new__(
-        cls,
-        logging_level=logging.WARNING,
-        request_delay: Optional[int] = None,
-        custom_device_id: Optional[str] = None,
-        generate_static_device_id: Optional[bool] = False,
-        custom_verify_fp: Optional[str] = None,
-        use_test_endpoints: Optional[bool] = False,
-        proxy: Optional[str] = None,
-        executable_path: Optional[str] = None,
-        *args,
-        **kwargs,
+    def __init__(
+            self,
+            logging_level: int = logging.WARNING,
+            request_delay: Optional[int] = None,
+            custom_device_id: Optional[str] = None,
+            generate_static_device_id: Optional[bool] = False,
+            custom_verify_fp: Optional[str] = None,
+            use_test_endpoints: Optional[bool] = False,
+            proxy: Optional[str] = None,
+            executable_path: Optional[str] = None,
+            *args,
+            **kwargs,
     ):
         """The TikTokApi class. Used to interact with TikTok. This is a singleton
             class to prevent issues from arising with playwright
@@ -111,10 +153,10 @@ class TikTokApi:
             in other places.
         """
 
-        if cls._instance is None:
-            cls._instance = super(TikTokApi, cls).__new__(cls)
-            cls._instance._initialize(
-                logging_level=logging_level,
+        self.logger.setLevel(logging_level)
+
+        with _thread_lock:
+            self._initialize(
                 request_delay=request_delay,
                 custom_device_id=custom_device_id,
                 generate_static_device_id=generate_static_device_id,
@@ -125,9 +167,8 @@ class TikTokApi:
                 *args,
                 **kwargs,
             )
-        return cls._instance
 
-    def _initialize(self, logging_level=logging.WARNING, **kwargs):
+    def _initialize(self, **kwargs):
         # Add classes from the api folder
         User.parent = self
         Search.parent = self
@@ -135,16 +176,16 @@ class TikTokApi:
         Hashtag.parent = self
         Video.parent = self
         Trending.parent = self
-
-        self.logger.setLevel(level=logging_level)
+        Comment.parent = self
 
         # Some Instance Vars
         self._executable_path = kwargs.get("executable_path", None)
+        self.cookie_jar = None
 
         if kwargs.get("custom_did") != None:
             raise Exception("Please use 'custom_device_id' instead of 'custom_did'")
         self._custom_device_id = kwargs.get("custom_device_id", None)
-        self._user_agent = "5.0+(iPhone%3B+CPU+iPhone+OS+14_8+like+Mac+OS+X)+AppleWebKit%2F605.1.15+(KHTML,+like+Gecko)+Version%2F14.1.2+Mobile%2F15E148+Safari%2F604.1"
+        self._user_agent = "5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1"  # TODO: Randomly generate agents
         self._proxy = kwargs.get("proxy", None)
         self._custom_verify_fp = kwargs.get("custom_verify_fp")
         self._signer_url = kwargs.get("external_signer", None)
@@ -161,7 +202,10 @@ class TikTokApi:
             )
 
         if self._signer_url is None:
-            self._browser = browser(**kwargs)
+            self._browser = asyncio.get_event_loop().run_until_complete(
+                asyncio.gather(browser.create(**kwargs))
+            )[0]
+
             self._user_agent = self._browser.user_agent
 
         try:
@@ -183,6 +227,7 @@ class TikTokApi:
             self._height = "1080"
             self._region = "US"
             self._language = "en"
+            raise e from e
 
     def get_data(self, path, subdomain="m", **kwargs) -> dict:
         """Makes requests to TikTok and returns their JSON.
@@ -213,9 +258,21 @@ class TikTokApi:
 
         if self._signer_url is None:
             kwargs["custom_verify_fp"] = verifyFp
-            verify_fp, device_id, signature, tt_params = self._browser.sign_url(
-                full_url, calc_tt_params=send_tt_params, **kwargs
-            )
+            (
+                verify_fp,
+                device_id,
+                signature,
+                tt_params,
+            ) = asyncio.get_event_loop().run_until_complete(
+                asyncio.gather(
+                    self._browser.sign_url(
+                        full_url, calc_tt_params=send_tt_params, **kwargs
+                    )
+                )
+            )[
+                0
+            ]
+
             user_agent = self._browser.user_agent
             referrer = self._browser.referrer
         else:
@@ -269,7 +326,7 @@ class TikTokApi:
             "x-tt-params": tt_params,
         }
 
-        self.logger.info(f"GET: %s\n\theaders: %s", url, headers)
+        self.logger.debug(f"GET: %s\n\theaders: %s", url, headers)
         r = requests.get(
             url,
             headers=headers,
@@ -278,11 +335,13 @@ class TikTokApi:
             **self._requests_extra_kwargs,
         )
 
+        self.cookie_jar = r.cookies
+
         try:
             parsed_data = r.json()
             if (
-                parsed_data.get("type") == "verify"
-                or parsed_data.get("verifyConfig", {}).get("type", "") == "verify"
+                    parsed_data.get("type") == "verify"
+                    or parsed_data.get("verifyConfig", {}).get("type", "") == "verify"
             ):
                 self.logger.error(
                     "Tiktok wants to display a captcha.\nResponse:\n%s\nCookies:\n%s\nURL:\n%s",
@@ -290,89 +349,77 @@ class TikTokApi:
                     self._get_cookies(**kwargs),
                     url,
                 )
-                raise TikTokCaptchaError()
+                raise CaptchaException(0, None,
+                    "TikTok blocks this request displaying a Captcha \nTip: Consider using a proxy or a custom_verify_fp as method parameters"
+                )
 
             # statusCode from props->pageProps->statusCode thanks @adiantek on #403
-            error_codes = {
-                "0": "OK",
-                "450": "CLIENT_PAGE_ERROR",
-                "10000": "VERIFY_CODE",
-                "10101": "SERVER_ERROR_NOT_500",
-                "10102": "USER_NOT_LOGIN",
-                "10111": "NET_ERROR",
-                "10113": "SHARK_SLIDE",
-                "10114": "SHARK_BLOCK",
-                "10119": "LIVE_NEED_LOGIN",
-                "10202": "USER_NOT_EXIST",
-                "10203": "MUSIC_NOT_EXIST",
-                "10204": "VIDEO_NOT_EXIST",
-                "10205": "HASHTAG_NOT_EXIST",
-                "10208": "EFFECT_NOT_EXIST",
-                "10209": "HASHTAG_BLACK_LIST",
-                "10210": "LIVE_NOT_EXIST",
-                "10211": "HASHTAG_SENSITIVITY_WORD",
-                "10212": "HASHTAG_UNSHELVE",
-                "10213": "VIDEO_LOW_AGE_M",
-                "10214": "VIDEO_LOW_AGE_T",
-                "10215": "VIDEO_ABNORMAL",
-                "10216": "VIDEO_PRIVATE_BY_USER",
-                "10217": "VIDEO_FIRST_REVIEW_UNSHELVE",
-                "10218": "MUSIC_UNSHELVE",
-                "10219": "MUSIC_NO_COPYRIGHT",
-                "10220": "VIDEO_UNSHELVE_BY_MUSIC",
-                "10221": "USER_BAN",
-                "10222": "USER_PRIVATE",
-                "10223": "USER_FTC",
-                "10224": "GAME_NOT_EXIST",
-                "10225": "USER_UNIQUE_SENSITIVITY",
-                "10227": "VIDEO_NEED_RECHECK",
-                "10228": "VIDEO_RISK",
-                "10229": "VIDEO_R_MASK",
-                "10230": "VIDEO_RISK_MASK",
-                "10231": "VIDEO_GEOFENCE_BLOCK",
-                "10404": "FYP_VIDEO_LIST_LIMIT",
-                "undefined": "MEDIA_ERROR",
-            }
+
             statusCode = parsed_data.get("statusCode", 0)
-            self.logger.info(f"TikTok Returned: %s", json)
+            self.logger.debug(f"TikTok Returned: %s", json)
             if statusCode == 10201:
                 # Invalid Entity
-                raise TikTokNotFoundError(
-                    "TikTok returned a response indicating the entity is invalid"
-                )
+                raise NotFoundException(10201, r,
+                                        "TikTok returned a response indicating the entity is invalid"
+                                        )
             elif statusCode == 10219:
-                # not available in this region
-                raise TikTokNotAvailableError("Content not available for this region")
+                # Not available in this region
+                raise NotAvailableException(10219, r, "Content not available for this region")
             elif statusCode != 0 and statusCode != -1:
-                raise GenericTikTokError(
-                    error_codes.get(
-                        statusCode, f"TikTok sent an unknown StatusCode of {statusCode}"
-                    )
-                )
+                raise TikTokException(statusCode, r,
+                                      ERROR_CODES.get(statusCode, f"TikTok sent an unknown StatusCode of {statusCode}")
+                                      )
 
             return r.json()
         except ValueError as e:
             text = r.text
-            self.logger.info("TikTok response: %s", text)
+            self.logger.debug("TikTok response: %s", text)
             if len(text) == 0:
-                raise EmptyResponseError(
+                raise EmptyResponseException(0, None,
                     "Empty response from Tiktok to " + url
                 ) from None
             else:
-                self.logger.exception("Converting response to JSON failed")
-                raise JSONDecodeFailure() from e
+                raise InvalidJSONException(0, r, "TikTok sent invalid JSON") from e
+
+    def get_data_no_sig(self, path, subdomain="m", **kwargs) -> dict:
+        processed = self._process_kwargs(kwargs)
+        full_url = f"https://{subdomain}.tiktok.com/" + path
+        referrer = self._browser.referrer
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:101.0) Gecko/20100101 Firefox/101.0",
+            "authority": "m.tiktok.com",
+            "method": "GET",
+            "path": full_url.split("tiktok.com")[1],
+            "scheme": "https",
+            "accept": "application/json, text/plain, */*",
+            "accept-encoding": "gzip",
+            "accept-language": "en-US,en;q=0.9",
+            "origin": referrer,
+            "referer": referrer,
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "none",
+            "sec-gpc": "1",
+        }
+        self.logger.debug(f"GET: %s\n\theaders: %s", full_url, headers)
+
+        r = requests.get(
+            full_url,
+            headers=headers,
+            cookies=self._get_cookies(**kwargs),
+            proxies=self._format_proxy(processed.proxy),
+            **self._requests_extra_kwargs,
+        )
+        return r.json()
 
     def __del__(self):
         """A basic cleanup method, called automatically from the code"""
-        try:
-            self._browser._clean_up()
-        except Exception:
-            pass
-        try:
-            get_playwright().stop()
-        except Exception:
-            pass
-        TikTokApi._instance = None
+        if not self._is_context_manager:
+            self.logger.debug(
+                "TikTokAPI was shutdown improperlly. Ensure the instance is terminated with .shutdown()"
+            )
+            self.shutdown()
+        return
 
     def external_signer(self, url, custom_device_id=None, verifyFp=None):
         """Makes requests to an external signer instead of using a browser.
@@ -456,9 +503,16 @@ class TikTokApi:
         processed = self._process_kwargs(kwargs)
         kwargs["custom_device_id"] = processed.device_id
         if self._signer_url is None:
-            verify_fp, device_id, signature, _ = self._browser.sign_url(
-                calc_tt_params=False, **kwargs
-            )
+            (
+                verify_fp,
+                device_id,
+                signature,
+                _,
+            ) = asyncio.get_event_loop().run_until_complete(
+                asyncio.gather(self._browser.sign_url(calc_tt_params=False, **kwargs))
+            )[
+                0
+            ]
             user_agent = self._browser.user_agent
             referrer = self._browser.referrer
         else:
@@ -538,28 +592,52 @@ class TikTokApi:
         )
 
     def _add_url_params(self) -> str:
+        try:
+            region = self._region
+            browser_language = self._browser_language.lower()
+            timezone = self._timezone_name
+            language = self._language
+        except AttributeError as e:
+            self.logger.debug("Attribute Error on add_url_params", exc_info=e)
+            region = "US"
+            browser_language = "en-us"
+            timezone = "America/Chicago"
+            language = "en"
         query = {
             "aid": 1988,
             "app_name": "tiktok_web",
             "device_platform": "web_mobile",
-            "region": self._region or "US",
+            "region": region,
             "priority_region": "",
             "os": "ios",
             "referer": "",
             "cookie_enabled": "true",
             "screen_width": self._width,
             "screen_height": self._height,
-            "browser_language": self._browser_language.lower() or "en-us",
+            "browser_language": browser_language,
             "browser_platform": "iPhone",
             "browser_name": "Mozilla",
             "browser_version": self._user_agent,
             "browser_online": "true",
-            "timezone_name": self._timezone_name or "America/Chicago",
+            "timezone_name": timezone,
             "is_page_visible": "true",
             "focus_state": "true",
             "is_fullscreen": "false",
-            "history_len": random.randint(0, 30),
-            "language": self._language or "en",
+            "history_len": random.randint(1, 5),
+            "language": language,
         }
 
         return urlencode(query)
+
+    def shutdown(self) -> None:
+        with _thread_lock:
+            self.logger.debug("Shutting down Playwright")
+            asyncio.get_event_loop().run_until_complete(self._browser._clean_up())
+
+    def __enter__(self):
+        with _thread_lock:
+            self._is_context_manager = True
+            return self
+
+    def __exit__(self, type, value, traceback):
+        self.shutdown()
